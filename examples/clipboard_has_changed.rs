@@ -1,13 +1,15 @@
-#[cfg(target_os = "macos")]
-use libclipboard::macos::{get_clipboard_item, has_clipboard_changed};
 use std::{thread::sleep, time::Duration};
 
+use libclipboard::models::Clipboard;
+
 fn main() {
-    #[cfg(target_os = "macos")]
+    let clipboard = Clipboard::new().unwrap();
+
+    println!("Starting loop");
     loop {
-        if has_clipboard_changed() {
+        if clipboard.has_changed() {
             println!("Clipboard contents has changed to:");
-            println!("{:#?}", get_clipboard_item());
+            println!("{:#?}", clipboard.get_item());
         }
 
         sleep(Duration::from_millis(500));

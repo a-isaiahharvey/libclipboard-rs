@@ -1,6 +1,42 @@
 use image::DynamicImage;
 use pdf::file::File;
 
+use crate::windows::WindowsCC;
+
+pub enum Clipboard {
+    Windows(WindowsCC),
+}
+
+impl Clipboard {
+    pub fn new() -> Result<Self, &'static str> {
+        cfg_if::cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                Ok(Clipboard::Windows(WindowsCC::new()))
+            } else {
+                Err("Do not support this OS")
+            }
+        }
+    }
+
+    pub fn get_item(&self) -> Option<ClipboardItem> {
+        match self {
+            Clipboard::Windows(cc) => cc.read_clipboard_item(),
+        }
+    }
+
+    pub fn number_of_formats(&self) -> i32 {
+        match self {
+            Clipboard::Windows(cc) => cc.get_number_of_formats(),
+        }
+    }
+
+    pub fn has_changed(&self) -> bool {
+        match self {
+            Clipboard::Windows(_) => todo!(),
+        }
+    }
+}
+
 pub enum ClipboardItem {
     Html(String),
     Text(String),
