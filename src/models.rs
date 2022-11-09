@@ -1,10 +1,16 @@
 use image::DynamicImage;
 use pdf::file::File;
 
+#[cfg(target_os = "macos")]
+use crate::macos::MacOSCC;
+#[cfg(target_os = "windows")]
 use crate::windows::WindowsCC;
 
 pub enum Clipboard {
+    #[cfg(target_os = "windows")]
     Windows(WindowsCC),
+    #[cfg(target_os = "macos")]
+    MacOS(MacOSCC),
 }
 
 impl Clipboard {
@@ -12,6 +18,8 @@ impl Clipboard {
         cfg_if::cfg_if! {
             if #[cfg(target_os = "windows")] {
                 Ok(Clipboard::Windows(WindowsCC::new()))
+            } else if #[cfg(target_os = "macos")] {
+                Ok(Clipboard::MacOS(MacOSCC::new()))
             } else {
                 Err("Do not support this OS")
             }
@@ -20,19 +28,28 @@ impl Clipboard {
 
     pub fn get_item(&self) -> Option<ClipboardItem> {
         match self {
+            #[cfg(target_os = "windows")]
             Clipboard::Windows(cc) => cc.read_clipboard_item(),
+            #[cfg(target_os = "macos")]
+            Clipboard::MacOS(cc) => cc.get_clipboard_item(),
         }
     }
 
     pub fn number_of_formats(&self) -> i32 {
         match self {
+            #[cfg(target_os = "windows")]
             Clipboard::Windows(cc) => cc.get_number_of_formats(),
+            #[cfg(target_os = "macos")]
+            Clipboard::MacOS(cc) => cc.get_number_of_formats(),
         }
     }
 
     pub fn has_changed(&self) -> bool {
         match self {
+            #[cfg(target_os = "windows")]
             Clipboard::Windows(_) => todo!(),
+            #[cfg(target_os = "macos")]
+            Clipboard::MacOS(cc) => cc.has_clipboard_changed(),
         }
     }
 }

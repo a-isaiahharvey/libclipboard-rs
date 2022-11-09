@@ -1,6 +1,6 @@
 use std::{thread::sleep, time::Duration};
 
-use libclipboard::models::Clipboard;
+use libclipboard::Clipboard;
 
 fn main() {
     let clipboard = Clipboard::new().unwrap();

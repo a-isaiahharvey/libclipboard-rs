@@ -1,4 +1,4 @@
-use libclipboard::models::Clipboard;
+use libclipboard::Clipboard;
 
 fn main() {
     let clipboard = Clipboard::new().unwrap();
