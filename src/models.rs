@@ -29,9 +29,16 @@ impl Clipboard {
     pub fn get_item(&self) -> Option<ClipboardItem> {
         match self {
             #[cfg(target_os = "windows")]
-            Clipboard::Windows(cc) => cc.read_clipboard_item(),
+            Clipboard::Windows(cc) => cc.get_clipboard_item(),
             #[cfg(target_os = "macos")]
             Clipboard::MacOS(cc) => cc.get_clipboard_item(),
+        }
+    }
+
+    pub fn set_item(&self, item: ClipboardItem) {
+        match self {
+            #[cfg(target_os = "windows")]
+            Clipboard::Windows(cc) => cc.set_clipboard_item(item),
         }
     }
 
@@ -57,6 +64,7 @@ impl Clipboard {
 pub enum ClipboardItem {
     Html(String),
     Text(String),
+    UnicodeText(String),
     Rtf(String),
     Rtfd(String),
     Url(String),
@@ -81,6 +89,7 @@ impl std::fmt::Debug for ClipboardItem {
                 .debug_tuple("Pdf")
                 .field(&format!("num_of_pages:{}", arg.num_pages()))
                 .finish(),
+            Self::UnicodeText(arg0) => f.debug_tuple("Unicode Text").field(arg0).finish(),
         }
     }
 }

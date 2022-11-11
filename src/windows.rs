@@ -1,13 +1,18 @@
-use std::ffi::CStr;
+use std::{
+    ffi::CStr,
+    mem::{self, size_of},
+    ptr,
+};
 
 use windows_sys::Win32::{
     Foundation::HWND,
+    Globalization::{MultiByteToWideChar, WideCharToMultiByte, CP_UTF8},
     System::{
         DataExchange::{
-            CloseClipboard, CountClipboardFormats, GetClipboardData, OpenClipboard,
-            RemoveClipboardFormatListener,
+            CloseClipboard, CountClipboardFormats, EmptyClipboard, GetClipboardData, OpenClipboard,
+            RemoveClipboardFormatListener, SetClipboardData,
         },
-        Memory::{GlobalLock, GlobalUnlock},
+        Memory::{GlobalAlloc, GlobalFree, GlobalLock, GlobalSize, GlobalUnlock, GHND},
         SystemServices::{
             CF_BITMAP, CF_DIB, CF_DIBV5, CF_DIF, CF_DSPBITMAP, CF_DSPENHMETAFILE,
             CF_DSPMETAFILEPICT, CF_DSPTEXT, CF_ENHMETAFILE, CF_GDIOBJFIRST, CF_GDIOBJLAST,
@@ -112,6 +117,32 @@ impl WindowsCC {
         }
     }
 
+    pub fn clipboard_format_as_clipboard_item(
+        &self,
+        format: ClipboardFormat,
+    ) -> Option<ClipboardItem> {
+        Some(match format {
+            ClipboardFormat::TEXT => ClipboardItem::Text(self.get_unicode_text_from_clipboard()?),
+            _ => return None,
+        })
+    }
+
+    pub fn get_clipboard_item(&self) -> Option<ClipboardItem> {
+        self.clipboard_format_as_clipboard_item(ClipboardFormat::TEXT)
+    }
+
+    pub fn set_clipboard_item(&self, item: ClipboardItem) {
+        match item {
+            ClipboardItem::Text(text) => self.set_text_from_clipboard(&text),
+            ClipboardItem::UnicodeText(text) => self.set_unicode_text_from_clipboard(&text),
+            _ => todo!(),
+        }
+    }
+
+    pub fn get_number_of_formats(&self) -> i32 {
+        unsafe { CountClipboardFormats() }
+    }
+
     fn get_text_from_clipboard(&self) -> Option<String> {
         unsafe {
             let mut result = None;
@@ -140,22 +171,138 @@ impl WindowsCC {
         }
     }
 
-    pub fn clipboard_format_as_clipboard_item(
-        &self,
-        format: ClipboardFormat,
-    ) -> Option<ClipboardItem> {
-        Some(match format {
-            ClipboardFormat::TEXT => ClipboardItem::Text(self.get_text_from_clipboard()?),
-            _ => return None,
-        })
+    fn get_unicode_text_from_clipboard(&self) -> Option<String> {
+        unsafe {
+            let mut result = None;
+            let hwnd = self.window_handle;
+
+            if OpenClipboard(hwnd) != 0 {
+                let hglb = GetClipboardData(ClipboardFormat::UNICODETEXT as u32);
+                if hglb != 0 {
+                    let pbox_copy = GlobalLock(hglb);
+
+                    if !pbox_copy.is_null() {
+                        let wstr = pbox_copy as *const u16;
+                        let size_needed = WideCharToMultiByte(
+                            CP_UTF8,
+                            0,
+                            wstr,
+                            (GlobalSize(hglb) / size_of::<u16>()) as i32,
+                            std::ptr::null_mut(),
+                            0,
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                        );
+
+                        let mut s = vec![0u8; size_needed as usize];
+
+                        WideCharToMultiByte(
+                            CP_UTF8,
+                            0,
+                            wstr,
+                            (GlobalSize(hglb) / size_of::<u16>()) as i32,
+                            &mut s[0],
+                            size_needed,
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                        );
+
+                        result = Some(
+                            String::from_utf8(
+                                s.iter()
+                                    .take_while(|c| **c != 0)
+                                    .map(|c| *c)
+                                    .collect::<Vec<u8>>(),
+                            )
+                            .ok()?,
+                        );
+                    }
+
+                    GlobalUnlock(hglb);
+                }
+                CloseClipboard();
+            }
+
+            result
+        }
     }
 
-    pub fn read_clipboard_item(&self) -> Option<ClipboardItem> {
-        self.clipboard_format_as_clipboard_item(ClipboardFormat::TEXT)
+    fn set_text_from_clipboard(&self, text: &str) {
+        unsafe {
+            if text.is_empty() {
+                return;
+            }
+
+            let hwnd = self.window_handle;
+
+            let mem = GlobalAlloc(GHND, (mem::size_of::<u16>() * (text.len()) - 1) as _);
+
+            if OpenClipboard(hwnd) != 0 {
+                let mem_ptr = GlobalLock(mem);
+                let mem_ptr = mem_ptr as *mut u16;
+
+                MultiByteToWideChar(
+                    CP_UTF8,
+                    0,
+                    text.as_ptr() as *const _,
+                    text.len() as _,
+                    mem_ptr,
+                    text.len() as _,
+                );
+
+                ptr::write(mem_ptr.offset(text.len() as isize), 0);
+
+                // Empties clipboard and makes the current window the owner of the clipboard
+                EmptyClipboard();
+
+                if SetClipboardData(CF_TEXT, mem) != 0 {}
+
+                GlobalUnlock(mem);
+                CloseClipboard();
+            }
+
+            // Free the memory when finished with it
+            GlobalFree(mem);
+        }
     }
 
-    pub fn get_number_of_formats(&self) -> i32 {
-        unsafe { CountClipboardFormats() }
+    fn set_unicode_text_from_clipboard(&self, text: &str) {
+        unsafe {
+            if text.is_empty() {
+                return;
+            }
+
+            let hwnd = self.window_handle;
+
+            let mem = GlobalAlloc(GHND, (mem::size_of::<u16>() * (text.len()) - 1) as _);
+
+            if OpenClipboard(hwnd) != 0 {
+                let mem_ptr = GlobalLock(mem);
+                let mem_ptr = mem_ptr as *mut u16;
+
+                MultiByteToWideChar(
+                    CP_UTF8,
+                    0,
+                    text.as_ptr() as *const _,
+                    text.len() as _,
+                    mem_ptr,
+                    text.len() as _,
+                );
+
+                ptr::write(mem_ptr.offset(text.len() as isize), 0);
+
+                // Empties clipboard and makes the current window the owner of the clipboard
+                EmptyClipboard();
+
+                if SetClipboardData(CF_UNICODETEXT, mem) != 0 {}
+
+                GlobalUnlock(mem);
+                CloseClipboard();
+            }
+
+            // Free the memory when finished with it
+            GlobalFree(mem);
+        }
     }
 }
 
