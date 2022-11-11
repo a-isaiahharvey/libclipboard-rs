@@ -39,6 +39,8 @@ impl Clipboard {
         match self {
             #[cfg(target_os = "windows")]
             Clipboard::Windows(cc) => cc.set_clipboard_item(item),
+            #[cfg(target_os = "macos")]
+            Clipboard::MacOS(_) => todo!(),
         }
     }
 
