@@ -1,3 +1,4 @@
+use cfg_if::cfg_if;
 use image::DynamicImage;
 use pdf::file::File;
 
@@ -15,7 +16,7 @@ pub enum Clipboard {
 
 impl Clipboard {
     pub fn new() -> Result<Self, &'static str> {
-        cfg_if::cfg_if! {
+        cfg_if! {
             if #[cfg(target_os = "windows")] {
                 Ok(Clipboard::Windows(WindowsCC::new()))
             } else if #[cfg(target_os = "macos")] {
@@ -27,38 +28,56 @@ impl Clipboard {
     }
 
     pub fn get_item(&self) -> Option<ClipboardItem> {
-        match self {
-            #[cfg(target_os = "windows")]
-            Clipboard::Windows(cc) => cc.get_clipboard_item(),
-            #[cfg(target_os = "macos")]
-            Clipboard::MacOS(cc) => cc.get_clipboard_item(),
+        cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                match self {
+                    Clipboard::Windows(cc) => cc.get_clipboard_item(),
+                }
+            } else if #[cfg(target_os = "macos")] {
+                match self {
+                    Clipboard::MacOS(cc) => cc.get_clipboard_item(),
+                }
+            } else {
+                None
+            }
         }
     }
 
     pub fn set_item(&self, item: ClipboardItem) {
-        match self {
-            #[cfg(target_os = "windows")]
-            Clipboard::Windows(cc) => cc.set_clipboard_item(item),
-            #[cfg(target_os = "macos")]
-            Clipboard::MacOS(_) => todo!(),
+        cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                match self {
+                    Clipboard::Windows(cc) => cc.set_clipboard_item(item),
+                }
+            }
         }
     }
 
     pub fn number_of_formats(&self) -> i32 {
-        match self {
-            #[cfg(target_os = "windows")]
-            Clipboard::Windows(cc) => cc.get_number_of_formats(),
-            #[cfg(target_os = "macos")]
-            Clipboard::MacOS(cc) => cc.get_number_of_formats(),
+        cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                match self {
+                    Clipboard::Windows(cc) => cc.get_number_of_formats(),
+                }
+            } else if #[cfg(target_os = "macos")] {
+                match self {
+                    Clipboard::MacOS(cc) => cc.get_number_of_formats(),
+                }
+            } else {
+                0
+            }
         }
     }
 
     pub fn has_changed(&self) -> bool {
-        match self {
-            #[cfg(target_os = "windows")]
-            Clipboard::Windows(_) => todo!(),
-            #[cfg(target_os = "macos")]
-            Clipboard::MacOS(cc) => cc.has_clipboard_changed(),
+        cfg_if! {
+            if #[cfg(target_os = "macos")] {
+                match self {
+                    Clipboard::MacOS(cc) => cc.has_clipboard_changed(),
+                }
+            } else {
+                false
+            }
         }
     }
 }
