@@ -290,6 +290,7 @@ impl WindowsCC {
         unsafe {
             if OpenClipboard(0) != 0 {
                 next_format = EnumClipboardFormats(next_format);
+                CloseClipboard();
             }
 
             next_format
