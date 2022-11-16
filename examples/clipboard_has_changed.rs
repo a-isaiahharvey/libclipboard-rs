@@ -2,8 +2,8 @@ use std::{thread::sleep, time::Duration};
 
 use libclipboard::Clipboard;
 
-fn main() {
-    let clipboard = Clipboard::new().unwrap();
+fn main() -> Result<(), String> {
+    let clipboard = Clipboard::new()?;
 
     println!("Starting loop");
     loop {

@@ -18,7 +18,7 @@ impl Clipboard {
     pub fn new() -> Result<Self, &'static str> {
         cfg_if! {
             if #[cfg(target_os = "windows")] {
-                Ok(Clipboard::Windows(WindowsCC::new()))
+                Ok(Clipboard::Windows(WindowsCC::new()?))
             } else if #[cfg(target_os = "macos")] {
                 Ok(Clipboard::MacOS(MacOSCC::new()))
             } else {
@@ -74,6 +74,10 @@ impl Clipboard {
             if #[cfg(target_os = "macos")] {
                 match self {
                     Clipboard::MacOS(cc) => cc.has_clipboard_changed(),
+                }
+            } else if #[cfg(target_os = "windows")] {
+                match self {
+                    Clipboard::Windows(cc) => cc.has_clipboard_changed(),
                 }
             } else {
                 false

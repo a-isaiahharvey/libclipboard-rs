@@ -1,6 +1,7 @@
 use libclipboard::Clipboard;
 
-fn main() {
-    let clipboard = Clipboard::new().unwrap();
-    println!("Number of formats: {:?}", clipboard.number_of_formats())
+fn main() -> Result<(), String> {
+    let clipboard = Clipboard::new()?;
+    println!("Number of formats: {:?}", clipboard.number_of_formats());
+    Ok(())
 }
