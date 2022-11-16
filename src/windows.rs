@@ -214,7 +214,6 @@ impl WindowsCC {
                 if hglb != 0 {
                     let pbox_copy = GlobalLock(hglb);
 
-                    println!("hello");
                     if !pbox_copy.is_null() {
                         result = Some(
                             match CStr::from_ptr(pbox_copy as *const i8).to_str() {
