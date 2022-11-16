@@ -1,7 +1,3 @@
-use std::{io::Cursor, slice, sync::Once};
-
-use image::{io::Reader, DynamicImage, ImageFormat};
-use pdf::file::File;
 use rust_macios::{
     appkit::{
         NSPasteboard, NSPasteboardTypeColor, NSPasteboardTypeFileURL, NSPasteboardTypeFont,
@@ -10,7 +6,10 @@ use rust_macios::{
         NSPasteboardTypeTIFF, NSPasteboardTypeTabularText, NSPasteboardTypeURL,
     },
     foundation::{NSData, NSString},
+    nsarray,
+    objective_c_runtime::{nil, traits::PNSObject},
 };
+use std::{io::Cursor, slice, sync::Once};
 
 use crate::models::ClipboardItem;
 
@@ -36,8 +35,15 @@ enum PasteType {
     Tiff,
 }
 
+#[derive(Debug, Clone)]
 pub struct MacOSCC {
     pasteboard: NSPasteboard,
+}
+
+impl PartialEq for MacOSCC {
+    fn eq(&self, other: &Self) -> bool {
+        self.pasteboard.m_is_equal(&other.pasteboard)
+    }
 }
 
 impl MacOSCC {
@@ -53,7 +59,15 @@ impl MacOSCC {
 
         let pastetype = Self::get_paste_type(&general_type)?;
 
-        Self::paste_type_as_clipboard_item(pastetype)
+        self.paste_type_as_clipboard_item(pastetype)
+    }
+
+    pub fn set_clipboard_item(&mut self, item: ClipboardItem) {
+        match item {
+            ClipboardItem::Text(string) => self.set_string_from_clipboard(string),
+            ClipboardItem::UnicodeText(string) => self.set_string_from_clipboard(string),
+            _ => todo!(),
+        }
     }
 
     pub fn get_clipboard_items(&self) -> Option<Vec<ClipboardItem>> {
@@ -66,7 +80,7 @@ impl MacOSCC {
                 Some(t) => t,
                 None => continue,
             };
-            result.push(Self::paste_type_as_clipboard_item(pastetype)?);
+            result.push(self.paste_type_as_clipboard_item(pastetype)?);
         }
 
         Some(result)
@@ -94,25 +108,27 @@ impl MacOSCC {
         }
     }
 
-    fn paste_type_as_clipboard_item(pastetype: PasteType) -> Option<ClipboardItem> {
+    fn paste_type_as_clipboard_item(&self, pastetype: PasteType) -> Option<ClipboardItem> {
         Some(match pastetype {
-            PasteType::Url => ClipboardItem::Url(Self::get_url_from_clipboard()?),
-            PasteType::Color => ClipboardItem::Text(Self::get_color_from_clipboard()?),
-            PasteType::FileURL => ClipboardItem::FilePath(Self::get_file_url_from_clipboard()?),
-            PasteType::Font => ClipboardItem::Text(Self::get_font_from_clipboard()?),
-            PasteType::Html => ClipboardItem::Html(Self::get_html_from_clipboard()?),
+            PasteType::Url => ClipboardItem::Url(self.get_url_from_clipboard()?),
+            PasteType::Color => ClipboardItem::UnicodeText(self.get_color_from_clipboard()?),
+            PasteType::FileURL => ClipboardItem::FilePath(self.get_file_url_from_clipboard()?),
+            PasteType::Font => ClipboardItem::UnicodeText(self.get_font_from_clipboard()?),
+            PasteType::Html => ClipboardItem::Html(self.get_html_from_clipboard()?),
             PasteType::MultipleTextSelection => {
-                ClipboardItem::Text(Self::get_multiple_text_selection_from_clipboard()?)
+                ClipboardItem::Text(self.get_multiple_text_selection_from_clipboard()?)
             }
-            PasteType::Rtf => ClipboardItem::Rtf(Self::get_rtf_from_clipboard()?),
-            PasteType::Rtfd => ClipboardItem::Rtfd(Self::get_rtfd_from_clipboard()?),
-            PasteType::Ruler => ClipboardItem::Text(Self::get_ruler_from_clipboard()?),
-            PasteType::Sound => ClipboardItem::Text(Self::get_sound_from_clipboard()?),
-            PasteType::String => ClipboardItem::Text(Self::get_string_from_clipboard()?),
-            PasteType::TabularText => ClipboardItem::Text(Self::get_tabular_text_from_clipboard()?),
-            PasteType::Png => ClipboardItem::Png(Self::get_png_from_clipboard()?),
-            PasteType::Tiff => ClipboardItem::Tiff(Self::get_tiff_from_clipboard()?),
-            PasteType::Pdf => ClipboardItem::Pdf(Self::get_pdf_from_clipboard()?),
+            PasteType::Rtf => ClipboardItem::Rtf(self.get_rtf_from_clipboard()?),
+            PasteType::Rtfd => ClipboardItem::Rtfd(self.get_rtfd_from_clipboard()?),
+            PasteType::Ruler => ClipboardItem::UnicodeText(self.get_ruler_from_clipboard()?),
+            PasteType::Sound => ClipboardItem::UnicodeText(self.get_sound_from_clipboard()?),
+            PasteType::String => ClipboardItem::UnicodeText(self.get_string_from_clipboard()?),
+            PasteType::TabularText => {
+                ClipboardItem::UnicodeText(self.get_tabular_text_from_clipboard()?)
+            }
+            PasteType::Png => ClipboardItem::Png(self.get_png_from_clipboard()?),
+            PasteType::Tiff => ClipboardItem::Tiff(self.get_tiff_from_clipboard()?),
+            PasteType::Pdf => ClipboardItem::Pdf(self.get_pdf_from_clipboard()?),
         })
     }
 
@@ -139,177 +155,163 @@ impl MacOSCC {
         }
     }
 
-    fn get_url_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_url_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeURL.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_file_url_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_file_url_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeFileURL.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_string_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_string_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeString.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_ruler_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn set_string_from_clipboard(&mut self, string: String) {
+        unsafe {
+            self.pasteboard
+                .declare_types_owner(nsarray![NSPasteboardTypeString.clone()], nil);
+
+            self.pasteboard
+                .set_string_for_type(string.into(), NSPasteboardTypeString.clone());
+        }
+    }
+
+    fn get_ruler_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeRuler.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_sound_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_sound_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeSound.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_font_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_font_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeFont.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_color_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_color_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeColor.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_rtf_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_rtf_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeRTF.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_rtfd_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_rtfd_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeRTFD.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_tabular_text_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_tabular_text_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeTabularText.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_multiple_text_selection_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_multiple_text_selection_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeTabularText.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_html_from_clipboard() -> Option<String> {
-        let pasteboard = NSPasteboard::general_pasteboard();
+    fn get_html_from_clipboard(&self) -> Option<String> {
         unsafe {
             Some(
-                pasteboard
+                self.pasteboard
                     .string_for_type(NSPasteboardTypeHTML.clone())?
                     .to_string(),
             )
         }
     }
 
-    fn get_png_from_clipboard() -> Option<DynamicImage> {
-        let pasteboard = NSPasteboard::general_pasteboard();
-
+    fn get_png_from_clipboard(&self) -> Option<Cursor<Vec<u8>>> {
         unsafe {
-            let mut reader = Reader::new(Cursor::new(
-                Self::nsdata_as_bytes(pasteboard.data_for_type(NSPasteboardTypePNG.clone())?)
+            Some(Cursor::new(
+                Self::nsdata_as_bytes(self.pasteboard.data_for_type(NSPasteboardTypePNG.clone())?)
                     .to_vec(),
-            ));
-
-            reader.set_format(ImageFormat::Png);
-
-            reader.decode().ok()
+            ))
         }
     }
 
-    fn get_tiff_from_clipboard() -> Option<DynamicImage> {
-        let pasteboard = NSPasteboard::general_pasteboard();
-
+    fn get_tiff_from_clipboard(&self) -> Option<Cursor<Vec<u8>>> {
         unsafe {
-            let mut reader = Reader::new(Cursor::new(
-                Self::nsdata_as_bytes(pasteboard.data_for_type(NSPasteboardTypeTIFF.clone())?)
-                    .to_vec(),
-            ));
-
-            reader.set_format(ImageFormat::Png);
-
-            reader.decode().ok()
+            Some(Cursor::new(
+                Self::nsdata_as_bytes(
+                    self.pasteboard
+                        .data_for_type(NSPasteboardTypeTIFF.clone())?,
+                )
+                .to_vec(),
+            ))
         }
     }
 
-    fn get_pdf_from_clipboard() -> Option<File<Vec<u8>>> {
-        let pasteboard = NSPasteboard::general_pasteboard();
-
+    fn get_pdf_from_clipboard(&self) -> Option<Cursor<Vec<u8>>> {
         unsafe {
-            File::from_data(
-                Self::nsdata_as_bytes(pasteboard.data_for_type(NSPasteboardTypePDF.clone())?)
+            Some(Cursor::new(
+                Self::nsdata_as_bytes(self.pasteboard.data_for_type(NSPasteboardTypePDF.clone())?)
                     .to_vec(),
-            )
-            .ok()
+            ))
         }
     }
 

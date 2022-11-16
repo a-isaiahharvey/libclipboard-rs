@@ -1,12 +1,13 @@
+use std::io::Cursor;
+
 use cfg_if::cfg_if;
-use image::DynamicImage;
-use pdf::file::File;
 
 #[cfg(target_os = "macos")]
 use crate::macos::MacOSCC;
 #[cfg(target_os = "windows")]
 use crate::windows::WindowsCC;
 
+#[derive(Debug, PartialEq, Clone)]
 pub enum Clipboard {
     #[cfg(target_os = "windows")]
     Windows(WindowsCC),
@@ -22,7 +23,7 @@ impl Clipboard {
             } else if #[cfg(target_os = "macos")] {
                 Ok(Clipboard::MacOS(MacOSCC::new()))
             } else {
-                Err("Do not support this OS")
+                Err("Does not support this OS")
             }
         }
     }
@@ -43,11 +44,31 @@ impl Clipboard {
         }
     }
 
-    pub fn set_item(&self, item: ClipboardItem) {
+    pub fn get_items(&self) -> Option<Vec<ClipboardItem>> {
+        cfg_if! {
+            if #[cfg(target_os = "windows")] {
+                match self {
+                    Clipboard::Windows(cc) => cc.get_clipboard_items(),
+                }
+            } else if #[cfg(target_os = "macos")] {
+                match self {
+                    Clipboard::MacOS(cc) => cc.get_clipboard_items(),
+                }
+            } else {
+                None
+            }
+        }
+    }
+
+    pub fn set_item(&mut self, item: ClipboardItem) {
         cfg_if! {
             if #[cfg(target_os = "windows")] {
                 match self {
                     Clipboard::Windows(cc) => cc.set_clipboard_item(item),
+                }
+            } else if #[cfg(target_os = "macos")] {
+                match self {
+                    Clipboard::MacOS(cc) => cc.set_clipboard_item(item),
                 }
             }
         }
@@ -86,6 +107,7 @@ impl Clipboard {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClipboardItem {
     Html(String),
     Text(String),
@@ -94,27 +116,8 @@ pub enum ClipboardItem {
     Rtfd(String),
     Url(String),
     FilePath(String),
-    Png(DynamicImage),
-    Tiff(DynamicImage),
-    Pdf(File<Vec<u8>>),
-}
-
-impl std::fmt::Debug for ClipboardItem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Html(arg0) => f.debug_tuple("Html").field(arg0).finish(),
-            Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
-            Self::Rtf(arg0) => f.debug_tuple("Rtf").field(arg0).finish(),
-            Self::Rtfd(arg0) => f.debug_tuple("Rtfd").field(arg0).finish(),
-            Self::Url(arg0) => f.debug_tuple("Url").field(arg0).finish(),
-            Self::FilePath(arg0) => f.debug_tuple("FilePath").field(arg0).finish(),
-            Self::Png(arg0) => f.debug_tuple("Png").field(arg0).finish(),
-            Self::Tiff(arg0) => f.debug_tuple("Tiff").field(arg0).finish(),
-            Self::Pdf(arg) => f
-                .debug_tuple("Pdf")
-                .field(&format!("num_of_pages:{}", arg.num_pages()))
-                .finish(),
-            Self::UnicodeText(arg0) => f.debug_tuple("Unicode Text").field(arg0).finish(),
-        }
-    }
+    Png(Cursor<Vec<u8>>),
+    Tiff(Cursor<Vec<u8>>),
+    Pdf(Cursor<Vec<u8>>),
+    RawBytes(Vec<i8>),
 }

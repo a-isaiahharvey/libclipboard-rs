@@ -11,7 +11,8 @@ use windows_sys::Win32::{
     System::{
         DataExchange::{
             AddClipboardFormatListener, CloseClipboard, CountClipboardFormats, EmptyClipboard,
-            GetClipboardData, OpenClipboard, RemoveClipboardFormatListener, SetClipboardData,
+            EnumClipboardFormats, GetClipboardData, OpenClipboard, RemoveClipboardFormatListener,
+            SetClipboardData,
         },
         LibraryLoader::GetModuleHandleA,
         Memory::{GlobalAlloc, GlobalFree, GlobalLock, GlobalSize, GlobalUnlock, GHND},
@@ -24,51 +25,33 @@ use windows_sys::Win32::{
         },
     },
     UI::WindowsAndMessaging::{
-        CreateWindowExA, DefWindowProcA, DispatchMessageA, GetDesktopWindow, GetMessageA,
-        GetTopWindow, RegisterClassExA, CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, HWND_MESSAGE, MSG,
-        WM_CLIPBOARDUPDATE, WNDCLASSEXA, WS_OVERLAPPEDWINDOW,
+        CreateWindowExA, DefWindowProcA, DispatchMessageA, GetMessageA, RegisterClassExA,
+        CS_DBLCLKS, CS_HREDRAW, CS_VREDRAW, HWND_MESSAGE, MSG, WM_CLIPBOARDUPDATE, WNDCLASSEXA,
+        WS_OVERLAPPEDWINDOW,
     },
 };
 
 use crate::models::ClipboardItem;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum ClipboardFormat {
-    /// A handle to a bitmap (HBITMAP).
     BITMAP = CF_BITMAP,
 
-    /// A memory object containing a BITMAPINFO structure followed by the
-    /// bitmap bits.
     DIB = CF_DIB,
 
-    /// A memory object containing a BITMAPV5HEADER structure followed by
-    /// the bitmap color space information and the bitmap bits.
     DIBV5 = CF_DIBV5,
 
-    /// Software Arts' Data Interchange Format.
     DIF = CF_DIF,
 
-    /// Bitmap display format associated with a private format. The hMem
-    /// parameter must be a handle to data that can be displayed in bitmap
-    /// format in lieu of the privately formatted data.
     DSPBITMAP = CF_DSPBITMAP,
 
-    /// Enhanced metafile display format associated with a private format.
-    /// The hMem parameter must be a handle to data that can be displayed
-    /// in enhanced metafile format in lieu of the privately formatted data.
     DSPENHMETAFILE = CF_DSPENHMETAFILE,
 
-    /// Metafile-picture display format associated with a private format.
-    /// The hMem parameter must be a handle to data that can be displayed
-    /// in metafile-picture format in lieu of the privately formatted data.
     DSPMETAFILEPICT = CF_DSPMETAFILEPICT,
 
-    /// Text display format associated with a private format. The hMem
-    /// parameter must be a handle to data that can be displayed in text
-    /// format in lieu of the privately formatted data.
     DSPTEXT = CF_DSPTEXT,
 
-    /// A handle to an enhanced metafile (HENHMETAFILE).
     ENHMETAFILE = CF_ENHMETAFILE,
 
     GDIOBJFIRST = CF_GDIOBJFIRST,
@@ -106,16 +89,72 @@ pub enum ClipboardFormat {
     WAVE = CF_WAVE,
 }
 
-pub fn count_clipboard_formats() -> i32 {
-    unsafe { CountClipboardFormats() }
+impl ClipboardFormat {
+    pub fn from_u32(value: u32) -> Option<Self> {
+        Some(match value {
+            CF_BITMAP => Self::BITMAP,
+
+            CF_DIB => Self::DIB,
+
+            CF_DIBV5 => Self::DIBV5,
+
+            CF_DIF => Self::DIF,
+
+            CF_DSPBITMAP => Self::DSPBITMAP,
+
+            CF_DSPENHMETAFILE => Self::DSPENHMETAFILE,
+
+            CF_DSPMETAFILEPICT => Self::DSPMETAFILEPICT,
+
+            CF_DSPTEXT => Self::DSPTEXT,
+
+            CF_ENHMETAFILE => Self::ENHMETAFILE,
+
+            CF_GDIOBJFIRST => Self::GDIOBJFIRST,
+
+            CF_GDIOBJLAST => Self::GDIOBJLAST,
+
+            CF_HDROP => Self::HDROP,
+
+            CF_LOCALE => Self::LOCALE,
+
+            CF_METAFILEPICT => Self::METAFILEPICT,
+
+            CF_OEMTEXT => Self::OEMTEXT,
+
+            CF_OWNERDISPLAY => Self::OWNERDISPLAY,
+
+            CF_PALETTE => Self::PALETTE,
+
+            CF_PENDATA => Self::PENDATA,
+
+            CF_PRIVATEFIRST => Self::PRIVATEFIRST,
+
+            CF_PRIVATELAST => Self::PRIVATELAST,
+
+            CF_RIFF => Self::RIFF,
+
+            CF_SYLK => Self::SYLK,
+
+            CF_TEXT => Self::TEXT,
+
+            CF_TIFF => Self::TIFF,
+
+            CF_UNICODETEXT => Self::UNICODETEXT,
+
+            CF_WAVE => Self::WAVE,
+
+            _ => return None,
+        })
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+pub struct WindowsCC {
+    msg_only_hwnd: HWND,
 }
 
 pub static mut CLIPBOARD_CHANGED: bool = false;
-
-pub struct WindowsCC {
-    msg_only_hwnd: HWND,
-    window_handle: HWND,
-}
 
 impl WindowsCC {
     pub fn new() -> Result<Self, &'static str> {
@@ -143,7 +182,7 @@ impl WindowsCC {
 
             let window_name = Uuid::new_v4().to_string();
 
-            // Creates a new window
+            // Creates a new window handle
             let msg_only_hwnd = CreateWindowExA(
                 0,
                 wc.lpszClassName,
@@ -166,12 +205,7 @@ impl WindowsCC {
             // Registers the window to receive clipboard updates
             AddClipboardFormatListener(msg_only_hwnd);
 
-            let window_handle = GetTopWindow(GetDesktopWindow());
-
-            Ok(Self {
-                window_handle,
-                msg_only_hwnd,
-            })
+            Ok(Self { msg_only_hwnd })
         }
     }
 
@@ -188,11 +222,31 @@ impl WindowsCC {
         })
     }
 
-    pub fn get_clipboard_item(&self) -> Option<ClipboardItem> {
-        self.clipboard_format_as_clipboard_item(ClipboardFormat::TEXT)
+    pub fn get_clipboard_items(&self) -> Option<Vec<ClipboardItem>> {
+        let mut result = vec![];
+        let no_formats = self.get_number_of_formats();
+        let mut next_format = 0;
+
+        for _ in 0..no_formats {
+            next_format = self.get_next_format(next_format);
+
+            result.push(match self.get_clipboard_item_with_format(next_format) {
+                Some(item) => item,
+                None => continue,
+            });
+        }
+
+        Some(result)
     }
 
-    pub fn set_clipboard_item(&self, item: ClipboardItem) {
+    pub fn get_clipboard_item(&self) -> Option<ClipboardItem> {
+        let next_available_format = self.get_next_format(0);
+        let format = ClipboardFormat::from_u32(next_available_format);
+
+        self.clipboard_format_as_clipboard_item(format?)
+    }
+
+    pub fn set_clipboard_item(&mut self, item: ClipboardItem) {
         match item {
             ClipboardItem::Text(text) => self.set_text_from_clipboard(&text),
             ClipboardItem::UnicodeText(text) => self.set_unicode_text_from_clipboard(&text),
@@ -202,168 +256,6 @@ impl WindowsCC {
 
     pub fn get_number_of_formats(&self) -> i32 {
         unsafe { CountClipboardFormats() }
-    }
-
-    fn get_text_from_clipboard(&self) -> Option<String> {
-        unsafe {
-            let mut result = None;
-            let hwnd = self.window_handle;
-
-            if OpenClipboard(hwnd) != 0 {
-                let hglb = GetClipboardData(ClipboardFormat::TEXT as u32);
-                if hglb != 0 {
-                    let pbox_copy = GlobalLock(hglb);
-
-                    if !pbox_copy.is_null() {
-                        result = Some(
-                            match CStr::from_ptr(pbox_copy as *const i8).to_str() {
-                                Ok(value) => value,
-                                Err(_) => {
-                                    GlobalUnlock(hglb);
-                                    CloseClipboard();
-                                    return None;
-                                }
-                            }
-                            .to_string(),
-                        );
-                    }
-
-                    GlobalUnlock(hglb);
-                }
-                CloseClipboard();
-            }
-
-            result
-        }
-    }
-
-    fn set_text_from_clipboard(&self, text: &str) {
-        unsafe {
-            if text.is_empty() {
-                return;
-            }
-
-            let hwnd = self.window_handle;
-
-            let mem = GlobalAlloc(GHND, (mem::size_of::<u8>() * (text.len())) as _);
-
-            if OpenClipboard(hwnd) != 0 {
-                let mem_ptr = GlobalLock(mem);
-                let mem_ptr = mem_ptr as *mut u8;
-
-                for (i, byte) in text.as_bytes().iter().enumerate() {
-                    ptr::write(mem_ptr.offset(i as _), *byte);
-                }
-
-                ptr::write(mem_ptr.offset(text.len() as isize), 0);
-
-                // Empties clipboard and makes the current window the owner of the clipboard
-                EmptyClipboard();
-
-                if SetClipboardData(CF_TEXT, mem) != 0 {}
-
-                GlobalUnlock(mem);
-                CloseClipboard();
-            }
-
-            // Free the memory when finished with it
-            GlobalFree(mem);
-        }
-    }
-
-    fn get_unicode_text_from_clipboard(&self) -> Option<String> {
-        unsafe {
-            let mut result = None;
-            let hwnd = self.window_handle;
-
-            if OpenClipboard(hwnd) != 0 {
-                let hglb = GetClipboardData(ClipboardFormat::UNICODETEXT as u32);
-                if hglb != 0 {
-                    let pbox_copy = GlobalLock(hglb);
-
-                    if !pbox_copy.is_null() {
-                        let wstr = pbox_copy as *const u16;
-                        let size_needed = WideCharToMultiByte(
-                            CP_UTF8,
-                            0,
-                            wstr,
-                            (GlobalSize(hglb) / size_of::<u16>()) as i32,
-                            ptr::null_mut(),
-                            0,
-                            ptr::null_mut(),
-                            ptr::null_mut(),
-                        );
-
-                        let mut s = vec![0u8; size_needed as usize];
-
-                        WideCharToMultiByte(
-                            CP_UTF8,
-                            0,
-                            wstr,
-                            (GlobalSize(hglb) / size_of::<u16>()) as i32,
-                            &mut s[0],
-                            size_needed,
-                            ptr::null_mut(),
-                            ptr::null_mut(),
-                        );
-
-                        result = Some(
-                            String::from_utf8(
-                                s.iter()
-                                    .take_while(|c| **c != 0)
-                                    .map(|c| *c)
-                                    .collect::<Vec<u8>>(),
-                            )
-                            .ok()?,
-                        );
-                    }
-
-                    GlobalUnlock(hglb);
-                }
-                CloseClipboard();
-            }
-
-            result
-        }
-    }
-
-    fn set_unicode_text_from_clipboard(&self, text: &str) {
-        unsafe {
-            if text.is_empty() {
-                return;
-            }
-
-            let hwnd = self.window_handle;
-
-            let mem = GlobalAlloc(GHND, (mem::size_of::<u16>() * (text.len())) as _);
-
-            if OpenClipboard(hwnd) != 0 {
-                let mem_ptr = GlobalLock(mem);
-                let mem_ptr = mem_ptr as *mut u16;
-
-                MultiByteToWideChar(
-                    CP_UTF8,
-                    0,
-                    text.as_ptr() as *const _,
-                    text.len() as _,
-                    mem_ptr,
-                    text.len() as _,
-                );
-
-                ptr::write(mem_ptr.offset(text.len() as isize), 0);
-
-                // Empties clipboard and makes the current window the owner of the clipboard
-                EmptyClipboard();
-
-                if SetClipboardData(CF_UNICODETEXT, mem) != 0 {}
-
-                GlobalUnlock(mem);
-                CloseClipboard();
-            }
-
-            // Free the memory when finished with it
-            GlobalFree(mem);
-        }
     }
 
     pub fn has_clipboard_changed(&self) -> bool {
@@ -393,28 +285,204 @@ impl WindowsCC {
             }
         }
     }
+
+    fn get_next_format(&self, mut next_format: u32) -> u32 {
+        unsafe {
+            if OpenClipboard(0) != 0 {
+                next_format = EnumClipboardFormats(next_format);
+            }
+
+            next_format
+        }
+    }
+
+    fn get_clipboard_item_with_format(&self, format: u32) -> Option<ClipboardItem> {
+        unsafe {
+            OpenClipboard(0);
+
+            let format = ClipboardFormat::from_u32(format);
+
+            CloseClipboard();
+
+            self.clipboard_format_as_clipboard_item(format?)
+        }
+    }
+
+    fn get_text_from_clipboard(&self) -> Option<String> {
+        unsafe {
+            let mut result = None;
+
+            if OpenClipboard(0) != 0 {
+                let hglb = GetClipboardData(ClipboardFormat::TEXT as u32);
+                if hglb != 0 {
+                    let pbox_copy = GlobalLock(hglb);
+
+                    if !pbox_copy.is_null() {
+                        result = Some(
+                            match CStr::from_ptr(pbox_copy as *const i8).to_str() {
+                                Ok(value) => value,
+                                Err(_) => {
+                                    GlobalUnlock(hglb);
+                                    CloseClipboard();
+                                    return None;
+                                }
+                            }
+                            .to_string(),
+                        );
+                    }
+
+                    GlobalUnlock(hglb);
+                }
+                CloseClipboard();
+            }
+
+            result
+        }
+    }
+
+    fn set_text_from_clipboard(&mut self, text: &str) {
+        unsafe {
+            let mem = GlobalAlloc(GHND, (mem::size_of::<u8>() * (text.len() + 1)) as _);
+
+            if OpenClipboard(0) != 0 {
+                let mem_ptr = GlobalLock(mem);
+                let mem_ptr = mem_ptr as *mut u8;
+
+                for (i, byte) in text.as_bytes().iter().enumerate() {
+                    ptr::write(mem_ptr.add(i), *byte);
+                }
+
+                ptr::write(mem_ptr.add(text.len()), 0);
+
+                // Empties clipboard and makes the current window the owner of the clipboard
+                EmptyClipboard();
+
+                if SetClipboardData(CF_TEXT, mem) != 0 {}
+
+                GlobalUnlock(mem);
+                CloseClipboard();
+            }
+
+            // Free the memory when finished with it
+            GlobalFree(mem);
+        }
+    }
+
+    fn get_unicode_text_from_clipboard(&self) -> Option<String> {
+        unsafe {
+            let mut result = None;
+
+            if OpenClipboard(0) != 0 {
+                let hglb = GetClipboardData(ClipboardFormat::UNICODETEXT as u32);
+                if hglb != 0 {
+                    let pbox_copy = GlobalLock(hglb);
+
+                    if !pbox_copy.is_null() {
+                        let wstr = pbox_copy as *const u16;
+                        let size_needed = WideCharToMultiByte(
+                            CP_UTF8,
+                            0,
+                            wstr,
+                            (GlobalSize(hglb) / size_of::<u16>()) as i32,
+                            ptr::null_mut(),
+                            0,
+                            ptr::null_mut(),
+                            ptr::null_mut(),
+                        );
+
+                        let mut s = vec![0u8; GlobalSize(hglb) / size_of::<u16>()];
+
+                        WideCharToMultiByte(
+                            CP_UTF8,
+                            0,
+                            wstr,
+                            (GlobalSize(hglb) / size_of::<u16>()) as i32,
+                            &mut s[0],
+                            size_needed,
+                            ptr::null_mut(),
+                            ptr::null_mut(),
+                        );
+
+                        result = Some(
+                            match CStr::from_ptr(s.as_ptr() as *const i8).to_str() {
+                                Ok(value) => value,
+                                Err(_) => {
+                                    GlobalUnlock(hglb);
+                                    CloseClipboard();
+                                    return None;
+                                }
+                            }
+                            .to_string(),
+                        );
+                    }
+
+                    GlobalUnlock(hglb);
+                }
+                CloseClipboard();
+            }
+
+            result
+        }
+    }
+
+    fn set_unicode_text_from_clipboard(&mut self, text: &str) {
+        unsafe {
+            let mem = GlobalAlloc(GHND, (mem::size_of::<u16>() * (text.len() + 1)) as _);
+
+            if OpenClipboard(0) != 0 {
+                let mem_ptr = GlobalLock(mem);
+                let mem_ptr = mem_ptr as *mut u16;
+
+                MultiByteToWideChar(
+                    CP_UTF8,
+                    0,
+                    text.as_ptr() as *const _,
+                    text.len() as _,
+                    mem_ptr,
+                    text.len() as _,
+                );
+
+                ptr::write(mem_ptr.add(text.len()), 0);
+
+                // Empties clipboard and makes the current window the owner of the clipboard
+                EmptyClipboard();
+
+                if SetClipboardData(CF_UNICODETEXT, mem) != 0 {}
+
+                GlobalUnlock(mem);
+                CloseClipboard();
+            }
+
+            // Free the memory when finished with it
+            GlobalFree(mem);
+        }
+    }
 }
 
+pub fn count_clipboard_formats() -> i32 {
+    unsafe { CountClipboardFormats() }
+}
+
+/// # Safety
+///
+/// This function changes the static `CLIPBOARD_CHANGED` when called
 pub unsafe extern "system" fn window_proc(
     param0: HWND,
     msg: u32,
     w_param: WPARAM,
     l_param: LPARAM,
 ) -> LRESULT {
-    if msg == WM_CLIPBOARDUPDATE {
-        if !CLIPBOARD_CHANGED {
-            unsafe { CLIPBOARD_CHANGED = true };
-        }
+    if msg == WM_CLIPBOARDUPDATE && !CLIPBOARD_CHANGED {
+        unsafe { CLIPBOARD_CHANGED = true };
     }
 
-    return DefWindowProcA(param0, msg, w_param, l_param);
+    DefWindowProcA(param0, msg, w_param, l_param)
 }
 
 impl Drop for WindowsCC {
     fn drop(&mut self) {
         unsafe {
-            RemoveClipboardFormatListener(self.window_handle);
-            GlobalFree(self.msg_only_hwnd);
+            RemoveClipboardFormatListener(self.msg_only_hwnd);
         }
     }
 }
