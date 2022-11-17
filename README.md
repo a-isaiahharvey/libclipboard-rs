@@ -38,3 +38,7 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 ```
+
+## License
+
+The code is under the [MIT license](https://github.com/a-isaiahharvey/libclipboard-rs/blob/main/LICENSE).
