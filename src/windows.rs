@@ -16,7 +16,7 @@ use windows_sys::Win32::{
         },
         LibraryLoader::GetModuleHandleA,
         Memory::{GlobalAlloc, GlobalFree, GlobalLock, GlobalSize, GlobalUnlock, GHND},
-        SystemServices::{
+        Ole::{
             CF_BITMAP, CF_DIB, CF_DIBV5, CF_DIF, CF_DSPBITMAP, CF_DSPENHMETAFILE,
             CF_DSPMETAFILEPICT, CF_DSPTEXT, CF_ENHMETAFILE, CF_GDIOBJFIRST, CF_GDIOBJLAST,
             CF_HDROP, CF_LOCALE, CF_METAFILEPICT, CF_OEMTEXT, CF_OWNERDISPLAY, CF_PALETTE,
@@ -34,7 +34,7 @@ use windows_sys::Win32::{
 use crate::models::ClipboardItem;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u32)]
+#[repr(u16)]
 pub enum ClipboardFormat {
     BITMAP = CF_BITMAP,
 
@@ -90,7 +90,7 @@ pub enum ClipboardFormat {
 }
 
 impl ClipboardFormat {
-    pub fn from_u32(value: u32) -> Option<Self> {
+    pub fn from_u16(value: u16) -> Option<Self> {
         Some(match value {
             CF_BITMAP => Self::BITMAP,
 
@@ -241,7 +241,7 @@ impl WindowsCC {
 
     pub fn get_clipboard_item(&self) -> Option<ClipboardItem> {
         let next_available_format = self.get_next_format(0);
-        let format = ClipboardFormat::from_u32(next_available_format);
+        let format = ClipboardFormat::from_u16(next_available_format);
 
         self.clipboard_format_as_clipboard_item(format?)
     }
@@ -286,10 +286,10 @@ impl WindowsCC {
         }
     }
 
-    fn get_next_format(&self, mut next_format: u32) -> u32 {
+    fn get_next_format(&self, mut next_format: u16) -> u16 {
         unsafe {
             if OpenClipboard(0) != 0 {
-                next_format = EnumClipboardFormats(next_format);
+                next_format = EnumClipboardFormats(next_format as u32) as u16;
                 CloseClipboard();
             }
 
@@ -297,11 +297,11 @@ impl WindowsCC {
         }
     }
 
-    fn get_clipboard_item_with_format(&self, format: u32) -> Option<ClipboardItem> {
+    fn get_clipboard_item_with_format(&self, format: u16) -> Option<ClipboardItem> {
         unsafe {
             OpenClipboard(0);
 
-            let format = ClipboardFormat::from_u32(format);
+            let format = ClipboardFormat::from_u16(format);
 
             CloseClipboard();
 
@@ -358,7 +358,7 @@ impl WindowsCC {
                 // Empties clipboard and makes the current window the owner of the clipboard
                 EmptyClipboard();
 
-                if SetClipboardData(CF_TEXT, mem) != 0 {}
+                if SetClipboardData(CF_TEXT as u32, mem) != 0 {}
 
                 GlobalUnlock(mem);
                 CloseClipboard();
@@ -448,7 +448,7 @@ impl WindowsCC {
                 // Empties clipboard and makes the current window the owner of the clipboard
                 EmptyClipboard();
 
-                if SetClipboardData(CF_UNICODETEXT, mem) != 0 {}
+                if SetClipboardData(CF_UNICODETEXT as u32, mem) != 0 {}
 
                 GlobalUnlock(mem);
                 CloseClipboard();

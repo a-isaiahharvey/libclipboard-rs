@@ -1,20 +1,20 @@
-use rust_macios::{
-    appkit::{
+use std::{io::Cursor, sync::Once};
+
+use icrate::{
+    objc2::rc::Id,
+    AppKit::{
         NSPasteboard, NSPasteboardTypeColor, NSPasteboardTypeFileURL, NSPasteboardTypeFont,
         NSPasteboardTypeHTML, NSPasteboardTypePDF, NSPasteboardTypePNG, NSPasteboardTypeRTF,
         NSPasteboardTypeRTFD, NSPasteboardTypeRuler, NSPasteboardTypeSound, NSPasteboardTypeString,
         NSPasteboardTypeTIFF, NSPasteboardTypeTabularText, NSPasteboardTypeURL,
     },
-    foundation::{NSData, NSString},
-    nsarray,
-    objective_c_runtime::{nil, traits::PNSObject},
+    Foundation::{NSMutableArray, NSString},
 };
-use std::{io::Cursor, slice, sync::Once};
 
 use crate::models::ClipboardItem;
 
 static INIT: Once = Once::new();
-static mut CHANGE_COUNT: i64 = 0;
+static mut CHANGE_COUNT: isize = 0;
 
 #[derive(Debug)]
 enum PasteType {
@@ -37,27 +37,27 @@ enum PasteType {
 
 #[derive(Debug, Clone)]
 pub struct MacOSCC {
-    pasteboard: NSPasteboard,
+    pasteboard: Id<NSPasteboard>,
 }
 
 impl PartialEq for MacOSCC {
     fn eq(&self, other: &Self) -> bool {
-        self.pasteboard.m_is_equal(&other.pasteboard)
+        self.pasteboard.eq(&other.pasteboard)
     }
 }
 
 impl MacOSCC {
     pub fn new() -> Self {
         Self {
-            pasteboard: NSPasteboard::general_pasteboard(),
+            pasteboard: unsafe { NSPasteboard::generalPasteboard() },
         }
     }
 
     pub fn get_clipboard_item(&self) -> Option<ClipboardItem> {
-        let types = self.pasteboard.types()?;
-        let general_type = self.pasteboard.available_type_from_array(types)?;
+        let types = unsafe { self.pasteboard.types()? };
+        let general_type = unsafe { self.pasteboard.availableTypeFromArray(&types)? };
 
-        let pastetype = Self::get_paste_type(&general_type)?;
+        let pastetype = Self::get_paste_type(general_type.as_ref())?;
 
         self.paste_type_as_clipboard_item(pastetype)
     }
@@ -71,12 +71,12 @@ impl MacOSCC {
     }
 
     pub fn get_clipboard_items(&self) -> Option<Vec<ClipboardItem>> {
-        let types = self.pasteboard.types()?;
+        let types = unsafe { self.pasteboard.types()? };
 
         let mut result = Vec::new();
 
-        for t in &types {
-            let pastetype = match Self::get_paste_type(&t) {
+        for t in types.into_iter() {
+            let pastetype = match Self::get_paste_type(t) {
                 Some(t) => t,
                 None => continue,
             };
@@ -87,7 +87,7 @@ impl MacOSCC {
     }
 
     pub fn get_number_of_formats(&self) -> i32 {
-        if let Some(types) = self.pasteboard.types() {
+        if let Some(types) = unsafe { self.pasteboard.types() } {
             return types.count() as i32;
         }
         0
@@ -96,11 +96,11 @@ impl MacOSCC {
     pub fn has_clipboard_changed(&self) -> bool {
         unsafe {
             INIT.call_once(|| {
-                CHANGE_COUNT = self.pasteboard.change_count();
+                CHANGE_COUNT = self.pasteboard.changeCount();
             });
 
-            if CHANGE_COUNT != self.pasteboard.change_count() {
-                CHANGE_COUNT = self.pasteboard.change_count();
+            if CHANGE_COUNT != self.pasteboard.changeCount() {
+                CHANGE_COUNT = self.pasteboard.changeCount();
                 true
             } else {
                 false
@@ -159,7 +159,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeURL.clone())?
+                    .stringForType(NSPasteboardTypeURL)?
                     .to_string(),
             )
         }
@@ -169,7 +169,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeFileURL.clone())?
+                    .stringForType(NSPasteboardTypeFileURL)?
                     .to_string(),
             )
         }
@@ -179,7 +179,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeString.clone())?
+                    .stringForType(NSPasteboardTypeString)?
                     .to_string(),
             )
         }
@@ -187,11 +187,13 @@ impl MacOSCC {
 
     fn set_string_from_clipboard(&mut self, string: String) {
         unsafe {
-            self.pasteboard
-                .declare_types_owner(nsarray![NSPasteboardTypeString.clone()], nil);
+            let mut array = NSMutableArray::array();
+            array.addObject(NSPasteboardTypeString);
+
+            self.pasteboard.declareTypes_owner(&array, None);
 
             self.pasteboard
-                .set_string_for_type(string.into(), NSPasteboardTypeString.clone());
+                .setString_forType(&NSString::from_str(&string), NSPasteboardTypeString);
         }
     }
 
@@ -199,7 +201,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeRuler.clone())?
+                    .stringForType(NSPasteboardTypeRuler)?
                     .to_string(),
             )
         }
@@ -209,7 +211,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeSound.clone())?
+                    .stringForType(NSPasteboardTypeSound)?
                     .to_string(),
             )
         }
@@ -219,7 +221,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeFont.clone())?
+                    .stringForType(NSPasteboardTypeFont)?
                     .to_string(),
             )
         }
@@ -229,7 +231,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeColor.clone())?
+                    .stringForType(NSPasteboardTypeColor)?
                     .to_string(),
             )
         }
@@ -239,7 +241,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeRTF.clone())?
+                    .stringForType(NSPasteboardTypeRTF)?
                     .to_string(),
             )
         }
@@ -249,7 +251,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeRTFD.clone())?
+                    .stringForType(NSPasteboardTypeRTFD)?
                     .to_string(),
             )
         }
@@ -259,7 +261,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeTabularText.clone())?
+                    .stringForType(NSPasteboardTypeTabularText)?
                     .to_string(),
             )
         }
@@ -269,7 +271,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeTabularText.clone())?
+                    .stringForType(NSPasteboardTypeTabularText)?
                     .to_string(),
             )
         }
@@ -279,7 +281,7 @@ impl MacOSCC {
         unsafe {
             Some(
                 self.pasteboard
-                    .string_for_type(NSPasteboardTypeHTML.clone())?
+                    .stringForType(NSPasteboardTypeHTML)?
                     .to_string(),
             )
         }
@@ -288,7 +290,9 @@ impl MacOSCC {
     fn get_png_from_clipboard(&self) -> Option<Cursor<Vec<u8>>> {
         unsafe {
             Some(Cursor::new(
-                Self::nsdata_as_bytes(self.pasteboard.data_for_type(NSPasteboardTypePNG.clone())?)
+                self.pasteboard
+                    .dataForType(NSPasteboardTypePNG)?
+                    .bytes()
                     .to_vec(),
             ))
         }
@@ -297,11 +301,10 @@ impl MacOSCC {
     fn get_tiff_from_clipboard(&self) -> Option<Cursor<Vec<u8>>> {
         unsafe {
             Some(Cursor::new(
-                Self::nsdata_as_bytes(
-                    self.pasteboard
-                        .data_for_type(NSPasteboardTypeTIFF.clone())?,
-                )
-                .to_vec(),
+                self.pasteboard
+                    .dataForType(NSPasteboardTypeTIFF)?
+                    .bytes()
+                    .to_vec(),
             ))
         }
     }
@@ -309,23 +312,12 @@ impl MacOSCC {
     fn get_pdf_from_clipboard(&self) -> Option<Cursor<Vec<u8>>> {
         unsafe {
             Some(Cursor::new(
-                Self::nsdata_as_bytes(self.pasteboard.data_for_type(NSPasteboardTypePDF.clone())?)
+                self.pasteboard
+                    .dataForType(NSPasteboardTypePDF)?
+                    .bytes()
                     .to_vec(),
             ))
         }
-    }
-
-    fn nsdata_as_bytes<'bytes>(nsdata: NSData) -> &'bytes [u8] {
-        let ptr = nsdata.bytes();
-
-        // The bytes pointer may be null for length zero
-        let (ptr, len) = if ptr.is_null() {
-            (0x1 as *const u8, 0)
-        } else {
-            (ptr as *const u8, nsdata.length())
-        };
-
-        unsafe { slice::from_raw_parts(ptr, len as usize) }
     }
 }
 
