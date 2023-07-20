@@ -6,7 +6,7 @@ use std::{
 
 use uuid::Uuid;
 use windows_sys::Win32::{
-    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, POINT, WPARAM},
+    Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM},
     Globalization::{MultiByteToWideChar, WideCharToMultiByte, CP_UTF8},
     System::{
         DataExchange::{
@@ -167,7 +167,7 @@ impl WindowsCC {
                 lpfnWndProc: Some(window_proc),
                 cbClsExtra: 0,
                 cbWndExtra: 0,
-                hInstance: GetModuleHandleA(ptr::null_mut()) as HINSTANCE,
+                hInstance: GetModuleHandleA(ptr::null_mut()),
                 hIcon: 0,
                 hCursor: 0,
                 hbrBackground: 0,
