@@ -172,7 +172,7 @@ impl WindowsCC {
                 hCursor: 0,
                 hbrBackground: 0,
                 lpszMenuName: ptr::null_mut(),
-                lpszClassName: sz_class_name.as_ptr() as *const u8,
+                lpszClassName: sz_class_name.as_ptr(),
                 hIconSm: 0,
             };
 
@@ -186,7 +186,7 @@ impl WindowsCC {
             let msg_only_hwnd = CreateWindowExA(
                 0,
                 wc.lpszClassName,
-                window_name.as_ptr() as *const u8,
+                window_name.as_ptr(),
                 WS_OVERLAPPEDWINDOW,
                 0,
                 0,
@@ -358,7 +358,7 @@ impl WindowsCC {
                 // Empties clipboard and makes the current window the owner of the clipboard
                 EmptyClipboard();
 
-                if SetClipboardData(CF_TEXT as u32, mem) != 0 {}
+                SetClipboardData(CF_TEXT as u32, mem);
 
                 GlobalUnlock(mem);
                 CloseClipboard();
@@ -448,7 +448,7 @@ impl WindowsCC {
                 // Empties clipboard and makes the current window the owner of the clipboard
                 EmptyClipboard();
 
-                if SetClipboardData(CF_UNICODETEXT as u32, mem) != 0 {}
+                SetClipboardData(CF_UNICODETEXT as u32, mem);
 
                 GlobalUnlock(mem);
                 CloseClipboard();
