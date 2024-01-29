@@ -76,7 +76,7 @@ impl MacOSCC {
         let mut result = Vec::new();
 
         for t in types.into_iter() {
-            let pastetype = match Self::get_paste_type(t) {
+            let pastetype = match Self::get_paste_type(&t) {
                 Some(t) => t,
                 None => continue,
             };
